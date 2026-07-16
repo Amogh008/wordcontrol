@@ -13,6 +13,10 @@ function createApp() {
     res.json({ status: 'ok' });
   });
 
+  app.get('/pingtest', (_req, res) => {
+    res.json({ message: 'server active' });
+  });
+
   // Word-related endpoints live under /api/word — future resources (e.g.
   // /api/<other-resource>) get their own router mounted alongside this one.
   app.use('/api/word', requireApiKey, wordsRouter);
