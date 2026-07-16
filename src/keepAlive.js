@@ -1,4 +1,4 @@
-const DEFAULT_INTERVAL_MS = 30 * 1000; // 30 seconds
+const DEFAULT_INTERVAL_MS = 9 * 60 * 1000; // 9 minutes
 
 // Pings `${targetUrl}/pingtest` on a timer to keep a companion service awake.
 // Any failure (network error, non-2xx, timeout) is intentionally swallowed —
