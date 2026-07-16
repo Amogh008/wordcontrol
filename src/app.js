@@ -14,6 +14,7 @@ function createApp() {
   });
 
   app.get('/pingtest', (_req, res) => {
+    console.log('ping request received');
     res.json({ message: 'server active' });
   });
 
