@@ -27,8 +27,8 @@ const SCHEMA = {
       type: Type.STRING,
       description:
         'Study notes with each item on its OWN line, separated by a newline (\\n). ' +
-        'Line 1 "Plural: ..." (nouns only). Line 2 "Example: <German sentence> (<English translation>)". ' +
-        'Line 3 "Memory aid: ..." only if genuinely helpful. Omit any line that does not apply. Do not run them together.',
+        'Line 1 "Plural: ..." (include only for nouns). Line 2 "Example: <German sentence> (<English translation>)". ' +
+        'Line 3 "Memory aid: ..." — ALWAYS include a helpful mnemonic or tip. Do not run them together.',
     },
   },
   required: ['artikel', 'bedeutung', 'notizen'],
@@ -39,10 +39,10 @@ const SYSTEM = `You are a German-English dictionary assistant for an English spe
 Given a German word, return its English meaning and concise study notes.
 - bedeutung: the English translation, kept short (a few words).
 - artikel: for a noun, its definite article (der/die/das); "" for anything that is not a noun.
-- notizen: put each note on its OWN line, separated by a real newline character. Use this layout, omitting any line that does not apply:
-Plural: <plural form for nouns>
+- notizen: put each note on its OWN line, separated by a real newline character. Use this layout:
+Plural: <plural form> (include this line only for nouns; skip it for non-nouns)
 Example: <a short German sentence> (<its English translation>)
-Memory aid: <a brief memory aid, only if genuinely helpful>
+Memory aid: <a helpful mnemonic or tip to remember the word — ALWAYS include this line>
 Never run the plural, example, and memory aid together on one line.`;
 
 async function autofillWord({ wort, artikel }) {
