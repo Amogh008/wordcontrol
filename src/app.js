@@ -1,11 +1,14 @@
 const express = require('express');
 const cors = require('cors');
+const morgan = require('morgan');
 const { requireApiKey } = require('./middleware/auth');
 const wordsRouter = require('./routes/words');
 
 function createApp() {
   const app = express();
 
+  // Log every incoming request (method, path, status, response time).
+  app.use(morgan('dev'));
   app.use(cors());
   app.use(express.json());
 

@@ -1,12 +1,5 @@
-const { GoogleGenAI, Type } = require('@google/genai');
-
-// Constructed lazily so a missing GEMINI_API_KEY never breaks server boot —
-// the route guards on the key before calling in here.
-let client;
-function getClient() {
-  if (!client) client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  return client;
-}
+const { Type } = require('@google/genai');
+const { generateContent } = require('./gemini');
 
 const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 
@@ -27,8 +20,7 @@ const SCHEMA = {
       type: Type.STRING,
       description:
         'Study notes with each item on its OWN line, separated by a newline (\\n). ' +
-        'Line 1 "Plural: ..." (include only for nouns). Line 2 "Example: <German sentence> (<English translation>)". ' +
-        'Line 3 "Memory aid: ..." — ALWAYS include a helpful mnemonic or tip. Do not run them together.',
+        'Line 1 "Plural: ..." (include only for nouns). Line 2 "Example: <German sentence> (<English translation>)". ' 
     },
   },
   required: ['artikel', 'bedeutung', 'notizen'],
@@ -42,22 +34,25 @@ Given a German word, return its English meaning and concise study notes.
 - notizen: put each note on its OWN line, separated by a real newline character. Use this layout:
 Plural: <plural form> (include this line only for nouns; skip it for non-nouns)
 Example: <a short German sentence> (<its English translation>)
-Memory aid: <a helpful mnemonic or tip to remember the word — ALWAYS include this line>
-Never run the plural, example, and memory aid together on one line.`;
+Never run the plural and example together on one line.`;
 
 async function autofillWord({ wort, artikel }) {
   const hint = artikel ? ` (the user thinks the article is "${artikel}")` : '';
 
   let response;
   try {
-    response = await getClient().models.generateContent({
+    response = await generateContent({
       model: MODEL,
       contents: `German word: "${wort}"${hint}`,
       config: {
         systemInstruction: SYSTEM,
         responseMimeType: 'application/json',
         responseSchema: SCHEMA,
-        maxOutputTokens: 1024,
+        // gemini-flash-latest thinks by default, and those tokens come out of
+        // maxOutputTokens — leaving the JSON truncated (unterminated string).
+        // Disable thinking and give the response room so it always completes.
+        thinkingConfig: { thinkingBudget: 0 },
+        maxOutputTokens: 2048,
       },
     });
   } catch (err) {
@@ -70,9 +65,23 @@ async function autofillWord({ wort, artikel }) {
     throw wrapped;
   }
 
+  // If the model still hit the token ceiling the JSON is cut off; surface a
+  // clear message instead of a raw "Unterminated string in JSON" parse crash.
+  if (response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+    const err = new Error('The autofill response was too long. Please try again.');
+    err.statusCode = 502;
+    throw err;
+  }
+
   const text = response.text;
   if (!text) throw new Error('No content returned from the model.');
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    const err = new Error('Autofill returned a malformed response. Please try again.');
+    err.statusCode = 502;
+    throw err;
+  }
 }
 
 module.exports = { autofillWord };
