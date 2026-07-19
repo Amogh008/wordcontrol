@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const wordSchema = new mongoose.Schema(
   {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     artikel: { type: String, enum: ['der', 'die', 'das', 'misc', ''], default: '' },
     wort: { type: String, required: true, trim: true },
     bedeutung: { type: String, required: true, trim: true },

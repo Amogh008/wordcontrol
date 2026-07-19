@@ -1,8 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const { requireApiKey } = require('./middleware/auth');
+const { requireAuth } = require('./middleware/auth');
 const wordsRouter = require('./routes/words');
+const authRouter = require('./routes/auth');
+const notesRouter = require('./routes/notes');
 
 function createApp() {
   const app = express();
@@ -21,9 +23,16 @@ function createApp() {
     res.json({ message: 'server active' });
   });
 
+  // Auth endpoints (register/login/google) are public; everything else requires a JWT.
+  app.use('/api/auth', authRouter);
+
   // Word-related endpoints live under /api/word — future resources (e.g.
   // /api/<other-resource>) get their own router mounted alongside this one.
-  app.use('/api/word', requireApiKey, wordsRouter);
+  app.use('/api/word', requireAuth, wordsRouter);
+
+  // Notes live in AstraDB (not MongoDB); rows are scoped by the same
+  // MongoDB user id used everywhere else so a user only ever sees their own.
+  app.use('/api/notes', requireAuth, notesRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
