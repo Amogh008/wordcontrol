@@ -1,21 +1,21 @@
-const { Type } = require('@google/genai');
-const { generateContent } = require('./gemini');
+const { generateContent } = require('./groq');
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 const SCHEMA = {
-  type: Type.OBJECT,
+  type: 'object',
+  additionalProperties: false,
   properties: {
     correct: {
-      type: Type.BOOLEAN,
+      type: 'boolean',
       description: 'true if the sentence has no grammar, spelling, case, or word-order mistakes.',
     },
     corrected: {
-      type: Type.STRING,
+      type: 'string',
       description: 'The fully corrected German sentence. If it is already correct, return it unchanged.',
     },
     feedback: {
-      type: Type.STRING,
+      type: 'string',
       description:
         'In English. If there are mistakes, list each on its OWN line (separated by \\n): what is wrong and the rule. ' +
         'If the sentence is correct, give a short confirmation.',
@@ -37,16 +37,10 @@ async function checkGrammar({ sentence }) {
     response = await generateContent({
       model: MODEL,
       contents: sentence,
-      config: {
-        systemInstruction: SYSTEM,
-        responseMimeType: 'application/json',
-        responseSchema: SCHEMA,
-        // gemini-flash-latest thinks by default, and those tokens come out of
-        // maxOutputTokens — leaving the JSON truncated (unterminated string).
-        // Disable thinking and give the response room so it always completes.
-        thinkingConfig: { thinkingBudget: 0 },
-        maxOutputTokens: 2048,
-      },
+      systemInstruction: SYSTEM,
+      responseSchema: SCHEMA,
+      schemaName: 'grammar_check',
+      maxOutputTokens: 2048,
     });
   } catch (err) {
     const apiMessage = err?.message || 'Grammar check failed.';
@@ -58,7 +52,7 @@ async function checkGrammar({ sentence }) {
 
   // If the model still hit the token ceiling the JSON is cut off; surface a
   // clear message instead of a raw "Unterminated string in JSON" parse crash.
-  if (response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+  if (response.finishReason === 'length') {
     const err = new Error('The grammar check response was too long. Please try a shorter sentence.');
     err.statusCode = 502;
     throw err;

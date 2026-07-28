@@ -1,7 +1,7 @@
 const express = require('express');
 const { listNotes, createNote, updateNote, deleteNote, clearNotes } = require('../notesRepo');
 const { formatNoteContent } = require('../formatNote');
-const { hasKey } = require('../gemini');
+const { hasKey } = require('../groq');
 
 const router = express.Router();
 

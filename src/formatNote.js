@@ -1,6 +1,6 @@
-const { generateContent } = require('./gemini');
+const { generateContent } = require('./groq');
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 const SYSTEM = `You are a note-formatting assistant. The user pastes raw, messy text they copied from somewhere (articles, chats, docs).
 Reformat it into clean, legible plain text:
@@ -17,21 +17,18 @@ async function formatNoteContent({ content }) {
     response = await generateContent({
       model: MODEL,
       contents: content,
-      config: {
-        systemInstruction: SYSTEM,
-        thinkingConfig: { thinkingBudget: 0 },
-        maxOutputTokens: 2048,
-      },
+      systemInstruction: SYSTEM,
+      maxOutputTokens: 2048,
     });
   } catch (err) {
-    const apiMessage = err?.message || 'Gemini request failed.';
+    const apiMessage = err?.message || 'Groq request failed.';
     const wrapped = new Error(apiMessage);
     const status = Number(err?.status);
     wrapped.statusCode = Number.isInteger(status) && status >= 400 && status < 600 ? status : 502;
     throw wrapped;
   }
 
-  if (response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+  if (response.finishReason === 'length') {
     const err = new Error('The formatted note was too long. Please try again with shorter content.');
     err.statusCode = 502;
     throw err;

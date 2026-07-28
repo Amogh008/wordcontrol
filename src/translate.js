@@ -1,6 +1,6 @@
-const { generateContent } = require('./gemini');
+const { generateContent } = require('./groq');
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 const LANG = { de: 'German', en: 'English' };
 
@@ -13,12 +13,10 @@ async function translateText({ text, from, to }) {
     response = await generateContent({
       model: MODEL,
       contents: text,
-      config: {
-        systemInstruction:
-          `You are a translation engine. Translate the user's ${fromName} text into ${toName}. ` +
-          'Respond with ONLY the translated text — no quotes, no notes, no explanations, no source text.',
-        maxOutputTokens: 2048,
-      },
+      systemInstruction:
+        `You are a translation engine. Translate the user's ${fromName} text into ${toName}. ` +
+        'Respond with ONLY the translated text — no quotes, no notes, no explanations, no source text.',
+      maxOutputTokens: 2048,
     });
   } catch (err) {
     const apiMessage = err?.message || 'Translation failed.';

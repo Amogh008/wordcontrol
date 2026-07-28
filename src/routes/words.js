@@ -3,7 +3,7 @@ const Word = require('../models/Word');
 const { autofillWord } = require('../autofill');
 const { translateText } = require('../translate');
 const { checkGrammar } = require('../grammar');
-const { hasKey } = require('../gemini');
+const { hasKey } = require('../groq');
 
 const router = express.Router();
 
