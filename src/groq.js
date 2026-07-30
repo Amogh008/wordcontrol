@@ -42,6 +42,7 @@ async function generateContent({
   contents,
   systemInstruction,
   responseSchema,
+  responseFormat,
   schemaName = 'response',
   maxOutputTokens = 2048,
   reasoningEffort = 'low',
@@ -63,7 +64,9 @@ async function generateContent({
 
   if (reasoningEffort) params.reasoning_effort = reasoningEffort;
 
-  if (responseSchema) {
+  if (responseFormat) {
+    params.response_format = responseFormat;
+  } else if (responseSchema) {
     params.response_format = {
       type: 'json_schema',
       json_schema: {
