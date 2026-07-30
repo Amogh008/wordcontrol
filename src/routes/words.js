@@ -3,6 +3,7 @@ const Word = require('../models/Word');
 const { autofillWord } = require('../autofill');
 const { translateText } = require('../translate');
 const { checkGrammar } = require('../grammar');
+const { generateVocabularyStory } = require('../story');
 const { hasKey } = require('../groq');
 
 const router = express.Router();
@@ -56,6 +57,32 @@ router.post('/autofill', async (req, res, next) => {
     }
     const suggestion = await autofillWord({ wort: wort.trim(), artikel });
     res.json(suggestion);
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+router.post('/story', async (req, res, next) => {
+  try {
+    if (!hasKey()) {
+      return res.status(503).json({ error: 'Story generation is not configured on the server.' });
+    }
+
+    const words = await Word.find({ userId: req.user.id })
+      .select('artikel wort bedeutung')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const vocabulary = words.filter((word) => word.wort && word.bedeutung);
+    if (vocabulary.length === 0) {
+      return res.status(400).json({ error: 'Save at least one word before generating a story.' });
+    }
+
+    const story = await generateVocabularyStory(vocabulary);
+    res.json(story);
   } catch (err) {
     if (err.statusCode) {
       return res.status(err.statusCode).json({ error: err.message });
