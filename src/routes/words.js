@@ -3,10 +3,43 @@ const Word = require('../models/Word');
 const { autofillWord } = require('../autofill');
 const { translateText } = require('../translate');
 const { checkGrammar } = require('../grammar');
-const { generateVocabularyStory } = require('../story');
+const { generateVocabularyStory, streamVocabularyStory } = require('../story');
 const { hasKey } = require('../groq');
 
 const router = express.Router();
+
+async function storyVocabularyForUser(userId, wordIds) {
+  if (!Array.isArray(wordIds) || wordIds.length === 0 || wordIds.length > 30) {
+    const error = new Error('Choose between 1 and 30 words for a story.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const uniqueIds = [...new Set(wordIds.map(String))];
+  if (uniqueIds.length !== wordIds.length) {
+    const error = new Error('Each story word must be unique.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const words = await Word.find({ _id: { $in: uniqueIds }, userId })
+    .select('artikel wort bedeutung')
+    .lean();
+  const byId = new Map(words.map((word) => [String(word._id), word]));
+  const vocabulary = uniqueIds.map((id) => byId.get(id)).filter(Boolean);
+
+  if (vocabulary.length !== uniqueIds.length) {
+    const error = new Error('One or more selected words are unavailable.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (vocabulary.some((word) => !word.wort || !word.bedeutung)) {
+    const error = new Error('Every selected word needs a word and meaning.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return vocabulary;
+}
 
 router.post('/grammar', async (req, res, next) => {
   try {
@@ -71,15 +104,7 @@ router.post('/story', async (req, res, next) => {
       return res.status(503).json({ error: 'Story generation is not configured on the server.' });
     }
 
-    const words = await Word.find({ userId: req.user.id })
-      .select('artikel wort bedeutung')
-      .sort({ createdAt: 1 })
-      .lean();
-
-    const vocabulary = words.filter((word) => word.wort && word.bedeutung);
-    if (vocabulary.length === 0) {
-      return res.status(400).json({ error: 'Save at least one word before generating a story.' });
-    }
+    const vocabulary = await storyVocabularyForUser(req.user.id, req.body.wordIds);
 
     const story = await generateVocabularyStory(vocabulary);
     res.json(story);
@@ -88,6 +113,44 @@ router.post('/story', async (req, res, next) => {
       return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
+  }
+});
+
+router.post('/story/stream', async (req, res) => {
+  const send = (event) => res.write(`${JSON.stringify(event)}\n`);
+
+  try {
+    if (!hasKey()) {
+      return res.status(503).json({ error: 'Story generation is not configured on the server.' });
+    }
+
+    const vocabulary = await storyVocabularyForUser(req.user.id, req.body.wordIds);
+
+    res.status(200);
+    res.set({
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+
+    const story = await streamVocabularyStory(vocabulary, (text) => {
+      if (!res.writableEnded) send({ type: 'delta', text });
+    });
+    if (!res.writableEnded) {
+      send({ type: 'done', story });
+      res.end();
+    }
+  } catch (err) {
+    if (!res.headersSent) {
+      return res.status(err.statusCode || 500).json({
+        error: err.statusCode ? err.message : 'Internal server error',
+      });
+    }
+    if (!res.writableEnded) {
+      send({ type: 'error', error: err.message || 'Story generation failed.' });
+      res.end();
+    }
   }
 });
 

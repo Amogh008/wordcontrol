@@ -98,4 +98,62 @@ async function generateContent({
   throw lastErr;
 }
 
-module.exports = { generateContent, hasKey, keyCount: () => KEYS.length };
+async function* generateContentStream({
+  model,
+  contents,
+  systemInstruction,
+  maxOutputTokens = 2048,
+  reasoningEffort = 'low',
+}) {
+  if (KEYS.length === 0) {
+    const err = new Error('No Groq API key is configured on the server.');
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const params = {
+    model,
+    messages: [
+      ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
+      { role: 'user', content: contents },
+    ],
+    max_completion_tokens: maxOutputTokens,
+    stream: true,
+  };
+
+  if (reasoningEffort) params.reasoning_effort = reasoningEffort;
+
+  const start = cursor;
+  let lastErr;
+  for (let i = 0; i < KEYS.length; i++) {
+    const key = KEYS[(start + i) % KEYS.length];
+    let emittedContent = false;
+    try {
+      const stream = await clientFor(key).chat.completions.create(params);
+      cursor = (start + i + 1) % KEYS.length;
+      for await (const chunk of stream) {
+        const text = chunk.choices?.[0]?.delta?.content;
+        if (text) {
+          emittedContent = true;
+          yield text;
+        }
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+      // Once output has reached the client, retrying with another key would
+      // append a second story to the partially streamed first one.
+      if (emittedContent) throw err;
+      if (!shouldFailover(Number(err?.status))) throw err;
+    }
+  }
+
+  throw lastErr;
+}
+
+module.exports = {
+  generateContent,
+  generateContentStream,
+  hasKey,
+  keyCount: () => KEYS.length,
+};
