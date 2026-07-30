@@ -26,7 +26,7 @@ async function generateVocabularyStory(words) {
       contents: `Create one German story using all vocabulary entries below:\n${JSON.stringify(vocabulary)}`,
       systemInstruction: SYSTEM,
       responseFormat: { type: 'json_object' },
-      maxOutputTokens: 8192,
+      maxOutputTokens: 4096,
       reasoningEffort: null,
     });
   } catch (err) {
