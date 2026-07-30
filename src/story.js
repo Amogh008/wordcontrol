@@ -1,6 +1,6 @@
 const { generateContent } = require('./groq');
 
-const MODEL = 'groq/compound';
+const MODEL = 'llama-3.3-70b-versatile';
 
 const SYSTEM = `You are a creative German-language storyteller for an adult German learner.
 Write a coherent, beautiful, meaningful story using every supplied vocabulary word.
