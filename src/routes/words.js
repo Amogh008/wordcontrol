@@ -7,6 +7,16 @@ const { generateVocabularyStory, streamVocabularyStory } = require('../story');
 const { hasKey } = require('../groq');
 
 const router = express.Router();
+const STORY_LEVELS = new Set(['A1', 'A2', 'B1']);
+
+function storyLevel(value) {
+  if (!STORY_LEVELS.has(value)) {
+    const error = new Error('Choose a valid story level: A1, A2, or B1.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return value;
+}
 
 async function storyVocabularyForUser(userId, wordIds) {
   if (!Array.isArray(wordIds) || wordIds.length === 0 || wordIds.length > 30) {
@@ -104,9 +114,10 @@ router.post('/story', async (req, res, next) => {
       return res.status(503).json({ error: 'Story generation is not configured on the server.' });
     }
 
+    const level = storyLevel(req.body.level);
     const vocabulary = await storyVocabularyForUser(req.user.id, req.body.wordIds);
 
-    const story = await generateVocabularyStory(vocabulary);
+    const story = await generateVocabularyStory(vocabulary, level);
     res.json(story);
   } catch (err) {
     if (err.statusCode) {
@@ -124,6 +135,7 @@ router.post('/story/stream', async (req, res) => {
       return res.status(503).json({ error: 'Story generation is not configured on the server.' });
     }
 
+    const level = storyLevel(req.body.level);
     const vocabulary = await storyVocabularyForUser(req.user.id, req.body.wordIds);
 
     res.status(200);
@@ -134,7 +146,7 @@ router.post('/story/stream', async (req, res) => {
     });
     res.flushHeaders();
 
-    const story = await streamVocabularyStory(vocabulary, (text) => {
+    const story = await streamVocabularyStory(vocabulary, level, (text) => {
       if (!res.writableEnded) send({ type: 'delta', text });
     });
     if (!res.writableEnded) {

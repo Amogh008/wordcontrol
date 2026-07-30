@@ -5,6 +5,7 @@ const { requireAuth } = require('./middleware/auth');
 const wordsRouter = require('./routes/words');
 const authRouter = require('./routes/auth');
 const notesRouter = require('./routes/notes');
+const dictionaryRouter = require('./routes/dictionary');
 
 function createApp() {
   const app = express();
@@ -29,6 +30,7 @@ function createApp() {
   // Word-related endpoints live under /api/word — future resources (e.g.
   // /api/<other-resource>) get their own router mounted alongside this one.
   app.use('/api/word', requireAuth, wordsRouter);
+  app.use('/api/dictionary', requireAuth, dictionaryRouter);
 
   // Notes live in AstraDB (not MongoDB); rows are scoped by the same
   // MongoDB user id used everywhere else so a user only ever sees their own.
