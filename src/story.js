@@ -1,6 +1,6 @@
 const { generateContent } = require('./groq');
 
-const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const MODEL = 'groq/compound-mini';
 
 const SCHEMA = {
   type: 'object',
