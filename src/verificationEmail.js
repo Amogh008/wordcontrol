@@ -1,23 +1,35 @@
-const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+const nodemailer = require('nodemailer');
 
-async function sendVerificationEmail(email, code) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.VERIFICATION_EMAIL_FROM;
-  if (!apiKey || !from) {
+let transporter;
+
+function mailTransporter() {
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_APP_PASSWORD;
+  if (!user || !pass) {
     const error = new Error('Email verification is not configured.');
     error.statusCode = 503;
     throw error;
   }
 
-  const response = await fetch(RESEND_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT || 465),
+      secure: String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false',
+      auth: { user, pass: pass.replace(/\s+/g, '') },
+    });
+  }
+  return transporter;
+}
+
+async function sendVerificationEmail(email, code) {
+  const user = process.env.SMTP_USER;
+  const from = process.env.VERIFICATION_EMAIL_FROM || `Wordcontrol <${user}>`;
+
+  try {
+    await mailTransporter().sendMail({
       from,
-      to: [email],
+      to: email,
       subject: 'Your Wordcontrol verification code',
       text: `Your Wordcontrol verification code is ${code}. It expires in 10 minutes.`,
       html: [
@@ -28,15 +40,15 @@ async function sendVerificationEmail(email, code) {
         '<p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p>',
         '</div>',
       ].join(''),
-    }),
-  });
-
-  if (!response.ok) {
-    const details = await response.text();
-    console.error('Verification email delivery failed:', response.status, details);
-    const error = new Error('The verification email could not be sent. Please try again.');
-    error.statusCode = 502;
-    throw error;
+    });
+  } catch (err) {
+    if (err.statusCode) throw err;
+    console.error('Verification email delivery failed:', err.message);
+    const deliveryError = new Error(
+      'The verification email could not be sent. Please try again.',
+    );
+    deliveryError.statusCode = 502;
+    throw deliveryError;
   }
 }
 
