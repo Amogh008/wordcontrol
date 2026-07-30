@@ -44,6 +44,7 @@ async function generateContent({
   responseSchema,
   schemaName = 'response',
   maxOutputTokens = 2048,
+  reasoningEffort = 'low',
 }) {
   if (KEYS.length === 0) {
     const err = new Error('No Groq API key is configured on the server.');
@@ -58,8 +59,9 @@ async function generateContent({
       { role: 'user', content: contents },
     ],
     max_completion_tokens: maxOutputTokens,
-    reasoning_effort: 'low',
   };
+
+  if (reasoningEffort) params.reasoning_effort = reasoningEffort;
 
   if (responseSchema) {
     params.response_format = {

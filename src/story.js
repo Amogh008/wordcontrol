@@ -47,6 +47,7 @@ async function generateVocabularyStory(words) {
       responseSchema: SCHEMA,
       schemaName: 'vocabulary_story',
       maxOutputTokens: 8192,
+      reasoningEffort: null,
     });
   } catch (err) {
     const wrapped = new Error(err?.message || 'Story generation failed.');
