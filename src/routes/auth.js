@@ -1,7 +1,12 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
+const Word = require('../models/Word');
+const PendingRegistration = require('../models/PendingRegistration');
+const { clearNotes } = require('../notesRepo');
+const { sendVerificationEmail } = require('../verificationEmail');
 const { signToken } = require('../tokens');
 const { requireAuth } = require('../middleware/auth');
 
@@ -14,6 +19,27 @@ const googleClientIds = (process.env.GOOGLE_CLIENT_ID || '')
   .split(',')
   .map((id) => id.trim())
   .filter(Boolean);
+
+async function verifiedGooglePayload(idToken) {
+  if (!idToken) {
+    const error = new Error('idToken is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (googleClientIds.length === 0) {
+    const error = new Error('Google sign-in is not configured on the server.');
+    error.statusCode = 503;
+    throw error;
+  }
+  const ticket = await googleClient.verifyIdToken({ idToken, audience: googleClientIds });
+  const payload = ticket.getPayload();
+  if (!payload.email || !payload.email_verified) {
+    const error = new Error('Google has not verified this email address.');
+    error.statusCode = 401;
+    throw error;
+  }
+  return payload;
+}
 
 router.post('/register', async (req, res, next) => {
   try {
@@ -30,9 +56,70 @@ router.post('/register', async (req, res, next) => {
     if (existing) {
       return res.status(409).json({ error: 'An account with this email already exists.' });
     }
+    const recentRequest = await PendingRegistration.findOne({ email: normalizedEmail });
+    if (recentRequest && Date.now() - recentRequest.updatedAt.getTime() < 60 * 1000) {
+      return res.status(429).json({
+        error: 'Please wait one minute before requesting another code.',
+      });
+    }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ email: normalizedEmail, passwordHash, name });
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await sendVerificationEmail(normalizedEmail, code);
+    await PendingRegistration.findOneAndUpdate(
+      { email: normalizedEmail },
+      { email: normalizedEmail, passwordHash, name, codeHash, attempts: 0, expiresAt },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    res.status(202).json({
+      pendingVerification: true,
+      email: normalizedEmail,
+      message: 'Check your email for the verification code.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/verify-email', async (req, res, next) => {
+  try {
+    const normalizedEmail = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+    if (!normalizedEmail || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: 'Enter the six-digit verification code.' });
+    }
+
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail });
+    if (!pending || pending.expiresAt <= new Date()) {
+      return res.status(410).json({ error: 'This code has expired. Request a new one.' });
+    }
+    if (pending.attempts >= 5) {
+      return res.status(429).json({ error: 'Too many attempts. Request a new code.' });
+    }
+    const matches = await bcrypt.compare(code, pending.codeHash);
+    if (!matches) {
+      pending.attempts += 1;
+      await pending.save();
+      return res.status(400).json({ error: 'The verification code is incorrect.' });
+    }
+
+    const existing = await User.findOne({ email: normalizedEmail });
+    if (existing) {
+      await PendingRegistration.deleteOne({ _id: pending._id });
+      return res.status(409).json({ error: 'An account with this email already exists.' });
+    }
+
+    const user = await User.create({
+      email: pending.email,
+      passwordHash: pending.passwordHash,
+      name: pending.name,
+      emailVerified: true,
+    });
+    await PendingRegistration.deleteOne({ _id: pending._id });
     res.status(201).json({ token: signToken(user), user });
   } catch (err) {
     next(err);
@@ -65,34 +152,22 @@ router.post('/login', async (req, res, next) => {
 
 router.post('/google', async (req, res, next) => {
   try {
-    const { idToken } = req.body;
-    if (!idToken) {
-      return res.status(400).json({ error: 'idToken is required.' });
-    }
-    if (googleClientIds.length === 0) {
-      return res.status(503).json({ error: 'Google sign-in is not configured on the server.' });
-    }
-
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: googleClientIds,
-    });
-    const payload = ticket.getPayload();
+    const payload = await verifiedGooglePayload(req.body.idToken);
     const googleId = payload.sub;
-    const email = payload.email ? payload.email.toLowerCase() : undefined;
+    const email = payload.email.toLowerCase();
     const name = payload.name || '';
 
     let user = await User.findOne({ googleId });
-    if (!user && email) {
-      // Link Google to an existing email/password account rather than duplicating it.
-      user = await User.findOne({ email });
-      if (user) {
-        user.googleId = googleId;
-        await user.save();
+    if (!user) {
+      const emailUser = await User.findOne({ email });
+      if (emailUser) {
+        return res.status(409).json({
+          error: 'Sign in with your password, then link Google from Settings.',
+        });
       }
     }
     if (!user) {
-      user = await User.create({ googleId, email, name });
+      user = await User.create({ googleId, email, name, emailVerified: true });
     }
 
     res.json({ token: signToken(user), user });
@@ -107,6 +182,41 @@ router.post('/google', async (req, res, next) => {
   }
 });
 
+router.post('/link-google', requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (!user.email) {
+      return res.status(400).json({ error: 'Your account does not have an email address.' });
+    }
+
+    const payload = await verifiedGooglePayload(req.body.idToken);
+    const googleEmail = payload.email.trim().toLowerCase();
+    if (googleEmail !== user.email.trim().toLowerCase()) {
+      return res.status(400).json({
+        error: `Choose the Google account with the same email: ${user.email}`,
+      });
+    }
+
+    const linkedElsewhere = await User.findOne({
+      googleId: payload.sub,
+      _id: { $ne: user._id },
+    });
+    if (linkedElsewhere) {
+      return res.status(409).json({ error: 'This Google account is already linked.' });
+    }
+
+    user.googleId = payload.sub;
+    user.emailVerified = true;
+    await user.save();
+    res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
@@ -114,6 +224,25 @@ router.get('/me', requireAuth, async (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/me', requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Delete data held outside MongoDB first. If AstraDB is unavailable, keep
+    // the account intact so the user can retry without leaving orphaned notes.
+    await clearNotes(req.user.id);
+    await Word.deleteMany({ userId: req.user.id });
+    await User.deleteOne({ _id: req.user.id });
+
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
