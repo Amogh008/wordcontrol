@@ -67,4 +67,35 @@ async function sendVerificationEmail(email, code) {
   }
 }
 
-module.exports = { sendVerificationEmail };
+async function sendPasswordResetEmail(email, code) {
+  const user = process.env.SMTP_USER;
+  const from = process.env.VERIFICATION_EMAIL_FROM || `DLT <${user}>`;
+
+  try {
+    const mailer = await mailTransporter();
+    await mailer.sendMail({
+      from,
+      to: email,
+      subject: 'Reset your DLT password',
+      text: `Your DLT password reset code is ${code}. It expires in 10 minutes.`,
+      html: [
+        '<div style="font-family:Arial,sans-serif;line-height:1.6;color:#211d19">',
+        '<h1 style="font-family:Georgia,serif">Reset your DLT password</h1>',
+        '<p>Enter this code in DLT to choose a new password:</p>',
+        `<p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p>`,
+        '<p>This code expires in 10 minutes. If you did not request a password reset, you can ignore this email.</p>',
+        '</div>',
+      ].join(''),
+    });
+  } catch (err) {
+    if (err.statusCode) throw err;
+    console.error('Password reset email delivery failed:', err.message);
+    const deliveryError = new Error(
+      'The password reset email could not be sent. Please try again.',
+    );
+    deliveryError.statusCode = 502;
+    throw deliveryError;
+  }
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail };

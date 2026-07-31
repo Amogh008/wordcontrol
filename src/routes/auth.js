@@ -5,8 +5,9 @@ const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const Word = require('../models/Word');
 const PendingRegistration = require('../models/PendingRegistration');
+const PendingPasswordReset = require('../models/PendingPasswordReset');
 const { clearNotes } = require('../notesRepo');
-const { sendVerificationEmail } = require('../verificationEmail');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../verificationEmail');
 const { signToken } = require('../tokens');
 const { requireAuth } = require('../middleware/auth');
 
@@ -145,6 +146,90 @@ router.post('/login', async (req, res, next) => {
     }
 
     res.json({ token: signToken(user), user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/forgot-password', async (req, res, next) => {
+  try {
+    const normalizedEmail = String(req.body.email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      return res.status(400).json({ error: 'Enter your email address.' });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+    // Use the same response for unknown addresses so this endpoint does not
+    // reveal which email addresses have DLT accounts.
+    if (!user) {
+      return res.status(202).json({
+        message: 'If an account exists, a password reset code has been sent.',
+      });
+    }
+
+    const recentRequest = await PendingPasswordReset.findOne({ email: normalizedEmail });
+    if (recentRequest && Date.now() - recentRequest.updatedAt.getTime() < 60 * 1000) {
+      return res.status(429).json({
+        error: 'Please wait one minute before requesting another code.',
+      });
+    }
+
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await sendPasswordResetEmail(normalizedEmail, code);
+    await PendingPasswordReset.findOneAndUpdate(
+      { email: normalizedEmail },
+      { email: normalizedEmail, codeHash, attempts: 0, expiresAt },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    res.status(202).json({
+      message: 'If an account exists, a password reset code has been sent.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/reset-password', async (req, res, next) => {
+  try {
+    const normalizedEmail = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+    const password = String(req.body.password || '');
+    if (!normalizedEmail || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: 'Enter the six-digit reset code.' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    const pending = await PendingPasswordReset.findOne({ email: normalizedEmail });
+    if (!pending || pending.expiresAt <= new Date()) {
+      return res.status(410).json({ error: 'This reset code has expired. Request a new one.' });
+    }
+    if (pending.attempts >= 5) {
+      return res.status(429).json({ error: 'Too many attempts. Request a new code.' });
+    }
+    const matches = await bcrypt.compare(code, pending.codeHash);
+    if (!matches) {
+      pending.attempts += 1;
+      await pending.save();
+      return res.status(400).json({ error: 'The reset code is incorrect.' });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      await PendingPasswordReset.deleteOne({ _id: pending._id });
+      return res.status(410).json({ error: 'This reset request is no longer valid.' });
+    }
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.emailVerified = true;
+    await user.save();
+    await PendingPasswordReset.deleteOne({ _id: pending._id });
+
+    res.json({ message: 'Password reset successfully. You can now log in.' });
   } catch (err) {
     next(err);
   }
