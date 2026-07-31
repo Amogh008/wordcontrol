@@ -16,6 +16,9 @@ function mailTransporter() {
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: Number(process.env.SMTP_PORT || 465),
       secure: String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false',
+      // Render instances may resolve smtp.gmail.com to IPv6 even when the
+      // instance has no IPv6 route, which causes ENETUNREACH before SMTP auth.
+      family: 4,
       auth: { user, pass: pass.replace(/\s+/g, '') },
     });
   }
