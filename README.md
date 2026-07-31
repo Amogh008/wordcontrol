@@ -1,4 +1,4 @@
-# Wordcontrol API
+# DLT (Deutsche Learn Tool) API
 
 ## AI configuration
 

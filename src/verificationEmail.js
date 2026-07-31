@@ -24,18 +24,18 @@ function mailTransporter() {
 
 async function sendVerificationEmail(email, code) {
   const user = process.env.SMTP_USER;
-  const from = process.env.VERIFICATION_EMAIL_FROM || `Wordcontrol <${user}>`;
+  const from = process.env.VERIFICATION_EMAIL_FROM || `DLT <${user}>`;
 
   try {
     await mailTransporter().sendMail({
       from,
       to: email,
-      subject: 'Your Wordcontrol verification code',
-      text: `Your Wordcontrol verification code is ${code}. It expires in 10 minutes.`,
+      subject: 'Your DLT verification code',
+      text: `Your DLT verification code is ${code}. It expires in 10 minutes.`,
       html: [
         '<div style="font-family:Arial,sans-serif;line-height:1.6;color:#211d19">',
-        '<h1 style="font-family:Georgia,serif">Verify your Wordcontrol email</h1>',
-        '<p>Enter this code in Wordcontrol to finish creating your account:</p>',
+        '<h1 style="font-family:Georgia,serif">Verify your DLT email</h1>',
+        '<p>Enter this code in DLT (Deutsche Learn Tool) to finish creating your account:</p>',
         `<p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p>`,
         '<p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p>',
         '</div>',
