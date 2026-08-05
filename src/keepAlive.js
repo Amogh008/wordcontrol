@@ -16,7 +16,9 @@ function startKeepAlive(targetUrl, intervalMs = DEFAULT_INTERVAL_MS) {
   const ping = async () => {
     try {
       const res = await fetch(pingUrlWithMessage, { signal: AbortSignal.timeout(15000) });
-      console.log(`[keep-alive] pinged ${pingUrl} -> ${res.status}`);
+      console.info(
+        `[keep-alive] sent "${KEEP_ALIVE_MESSAGE}" to ${pingUrl} -> ${res.status}`,
+      );
     } catch {
       // Ignore errors on purpose: the other service may be down, restarting,
       // or slow to wake. We simply try again on the next interval.

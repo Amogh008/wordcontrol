@@ -21,7 +21,7 @@ function createApp() {
 
   app.get('/pingtest', (req, res) => {
     const message = typeof req.query.message === 'string' ? req.query.message : '';
-    console.info('ping request received', { message });
+    console.info(`[info] ping request received: ${JSON.stringify(message)}`);
     res.json({ message: 'server active' });
   });
 
