@@ -5,8 +5,11 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "start": "ENV_FILE=.env.production node src/server.js",
+    "dev": "ENV_FILE=.env.development nodemon src/server.js",
+    "clone-db:dev": "node scripts/cloneDatabasesToDev.js",
+    "rollback-db:prod-to-v5": "node scripts/rollbackProductionToV5.js --execute",
+    "migrate:language-profiles": "node scripts/migrateLanguageProfiles.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

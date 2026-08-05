@@ -1,4 +1,5 @@
 const { generateContent } = require('./groq');
+const { languageFor } = require('./languages');
 
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
@@ -41,7 +42,8 @@ Plural: <plural form> (include this line only for nouns; skip it for non-nouns)
 Example: <a short German sentence> (<its English translation>)
 Never run the plural and example together on one line.`;
 
-async function autofillWord({ wort, artikel }) {
+async function autofillWord({ wort, artikel, language = 'de' }) {
+  const target = languageFor(language)?.englishName || 'German';
   const hint = artikel
     ? ` (currently selected article: "${artikel}"; correct it if it is wrong)`
     : '';
@@ -50,8 +52,8 @@ async function autofillWord({ wort, artikel }) {
   try {
     response = await generateContent({
       model: MODEL,
-      contents: `German word: "${wort}"${hint}`,
-      systemInstruction: SYSTEM,
+      contents: `${target} word: "${wort}"${hint}`,
+      systemInstruction: SYSTEM.replaceAll('German', target).replace('der/die/das', 'the correct definite article in the target language'),
       responseSchema: SCHEMA,
       schemaName: 'word_autofill',
       maxOutputTokens: 2048,

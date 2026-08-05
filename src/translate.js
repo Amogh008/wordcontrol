@@ -2,11 +2,11 @@ const { generateContent } = require('./groq');
 
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
-const LANG = { de: 'German', en: 'English' };
+const { LANGUAGES } = require('./languages');
 
 async function translateText({ text, from, to }) {
-  const fromName = LANG[from] || 'German';
-  const toName = LANG[to] || 'English';
+  const fromName = LANGUAGES[from]?.englishName || 'German';
+  const toName = LANGUAGES[to]?.englishName || 'English';
 
   let response;
   try {

@@ -2,6 +2,9 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
 const User = require('./models/User');
+const LanguageProfile = require('./models/LanguageProfile');
+const { SUPPORTED_LANGUAGE_CODES } = require('./languages');
+const { getProfilePhoto } = require('./notesRepo');
 
 function attachRealtimeServer(httpServer) {
   const io = new Server(httpServer, {
@@ -48,21 +51,24 @@ function attachRealtimeServer(httpServer) {
     broadcastPresence();
   };
 
-  const publicOnlineUsers = () =>
+  const publicOnlineUsers = (language) =>
     [...connectedUsers.values()]
-      .map(({ userId, name }) => {
+      .filter((user) => user.language === language)
+      .map(({ userId, name, avatar }) => {
         const call = calls.get(userCalls.get(userId));
         let status = 'online';
         if (call?.state === 'in_call') status = 'in_call';
         else if (call) status = 'matched';
         else if (matchingQueue.includes(userId)) status = 'searching';
         else if (availableUsers.has(userId)) status = 'available';
-        return { id: userId, name, status };
+        return { id: userId, name, avatar, status };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
   const broadcastPresence = () => {
-    io.emit('presence:list', publicOnlineUsers());
+    SUPPORTED_LANGUAGE_CODES.forEach((language) => {
+      io.to(`language:${language}`).emit('presence:list', publicOnlineUsers(language));
+    });
   };
 
   const removeFromQueue = (userId) => {
@@ -160,12 +166,21 @@ function attachRealtimeServer(httpServer) {
       if (!token) return next(new Error('Unauthorized'));
 
       const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const profileId = socket.handshake.auth?.languageProfileId;
+      if (!profileId) return next(new Error('Choose a language profile.'));
       const user = await User.findById(payload.sub).select('name').lean();
       if (!user) return next(new Error('Unauthorized'));
+      const profile = await LanguageProfile.findOne({ _id: profileId, userId: user._id }).lean();
+      if (!profile) return next(new Error('Invalid language profile.'));
+      const photo = await getProfilePhoto(user._id.toString());
+      const avatarData = photo?.avatarData || photo?.data;
 
       socket.data.user = {
-        id: user._id.toString(),
-        name: user.name?.trim() || 'German learner',
+        id: profile._id.toString(),
+        accountId: user._id.toString(),
+        language: profile.language,
+        name: user.name?.trim() || 'Language learner',
+        avatar: avatarData ? `data:${photo.contentType};base64,${avatarData.toString('base64')}` : null,
       };
       return next();
     } catch (error) {
@@ -175,11 +190,12 @@ function attachRealtimeServer(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    const { id: userId, name } = socket.data.user;
+    const { id: userId, name, language, avatar } = socket.data.user;
+    socket.join(`language:${language}`);
     const userSockets = connections.get(userId) || new Set();
     userSockets.add(socket.id);
     connections.set(userId, userSockets);
-    connectedUsers.set(userId, { userId, name });
+    connectedUsers.set(userId, { userId, name, language, avatar });
 
     broadcastPresence();
     broadcastOwnership(userId);
@@ -209,7 +225,9 @@ function attachRealtimeServer(httpServer) {
 
       removeFromQueue(userId);
       const partnerId = matchingQueue.find(
-        (candidateId) => candidateId !== userId && availableUsers.has(candidateId),
+        (candidateId) => candidateId !== userId
+          && availableUsers.has(candidateId)
+          && connectedUsers.get(candidateId)?.language === language,
       );
 
       if (!partnerId) {

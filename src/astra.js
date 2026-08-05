@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const cassandra = require('cassandra-driver');
+const { dbName } = require('./dbTableNames');
 
 let client = null;
 
@@ -51,7 +52,7 @@ async function connectAstra() {
   // userId scopes every row to the MongoDB user so each account only ever
   // sees its own notes; id is a per-note clustering key under that partition.
   await newClient.execute(`
-    CREATE TABLE IF NOT EXISTS notes (
+    CREATE TABLE IF NOT EXISTS ${dbName('notes')} (
       user_id text,
       id uuid,
       title text,
@@ -64,7 +65,35 @@ async function connectAstra() {
 
   // Older tables created before `updated_at` existed won't have the column yet.
   try {
-    await newClient.execute('ALTER TABLE notes ADD updated_at timestamp');
+    await newClient.execute(`ALTER TABLE ${dbName('notes')} ADD updated_at timestamp`);
+  } catch (err) {
+    if (!/already exist/i.test(err.message)) throw err;
+  }
+
+  await newClient.execute(`
+    CREATE TABLE IF NOT EXISTS ${dbName('notes_by_profile')} (
+      user_id text,
+      language_profile_id text,
+      id uuid,
+      title text,
+      content text,
+      created_at timestamp,
+      updated_at timestamp,
+      PRIMARY KEY ((user_id, language_profile_id), id)
+    )
+  `);
+
+  await newClient.execute(`
+    CREATE TABLE IF NOT EXISTS ${dbName('profile_photos')} (
+      user_id text PRIMARY KEY,
+      content_type text,
+      data blob,
+      avatar_data blob,
+      updated_at timestamp
+    )
+  `);
+  try {
+    await newClient.execute(`ALTER TABLE ${dbName('profile_photos')} ADD avatar_data blob`);
   } catch (err) {
     if (!/already exist/i.test(err.message)) throw err;
   }
