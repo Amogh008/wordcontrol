@@ -1,20 +1,9 @@
 const express = require('express');
 const { hasKey } = require('../groq');
-const { searchDictionary, dictionaryEntry } = require('../dictionary');
+const { dictionaryEntry } = require('../dictionary');
+const { languageFor } = require('../languages');
 
 const router = express.Router();
-
-router.get('/search', (req, res, next) => {
-  try {
-    const query = String(req.query.q || '').trim();
-    if (query.length < 2 || query.length > 80) {
-      return res.status(400).json({ error: 'Enter between 2 and 80 characters.' });
-    }
-    res.json({ words: searchDictionary(query) });
-  } catch (error) {
-    next(error);
-  }
-});
 
 router.get('/entry', async (req, res, next) => {
   try {
@@ -23,9 +12,10 @@ router.get('/entry', async (req, res, next) => {
     }
     const word = String(req.query.word || '').trim();
     if (!word || word.length > 100) {
-      return res.status(400).json({ error: 'Choose a valid dictionary word.' });
+      return res.status(400).json({ error: 'Enter a valid dictionary word.' });
     }
-    res.json(await dictionaryEntry(word));
+    const interfaceLanguage = languageFor(String(req.query.interfaceLanguage || 'en'))?.code || 'en';
+    res.json(await dictionaryEntry(word, req.languageProfile.language, interfaceLanguage));
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     next(error);

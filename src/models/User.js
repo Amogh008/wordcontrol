@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema(
     googleId: { type: String, unique: true, sparse: true },
     emailVerified: { type: Boolean, default: false },
     name: { type: String, trim: true, default: '' },
+    profileInfoUpdatedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -21,4 +22,5 @@ userSchema.set('toJSON', {
   },
 });
 
-module.exports = mongoose.model('User', userSchema);
+const { dbName } = require('../dbTableNames');
+module.exports = mongoose.model('User', userSchema, dbName('users'));

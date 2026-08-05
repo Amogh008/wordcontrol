@@ -77,13 +77,15 @@ async function generateContent({
     };
   }
 
+  // Reserve the next key before awaiting the network request so concurrent
+  // calls do not all begin with the same key.
   const start = cursor;
+  cursor = (cursor + 1) % KEYS.length;
   let lastErr;
   for (let i = 0; i < KEYS.length; i++) {
     const key = KEYS[(start + i) % KEYS.length];
     try {
       const completion = await clientFor(key).chat.completions.create(params);
-      cursor = (start + i + 1) % KEYS.length;
       const choice = completion.choices?.[0];
       return {
         text: choice?.message?.content || '',
@@ -124,13 +126,13 @@ async function* generateContentStream({
   if (reasoningEffort) params.reasoning_effort = reasoningEffort;
 
   const start = cursor;
+  cursor = (cursor + 1) % KEYS.length;
   let lastErr;
   for (let i = 0; i < KEYS.length; i++) {
     const key = KEYS[(start + i) % KEYS.length];
     let emittedContent = false;
     try {
       const stream = await clientFor(key).chat.completions.create(params);
-      cursor = (start + i + 1) % KEYS.length;
       for await (const chunk of stream) {
         const text = chunk.choices?.[0]?.delta?.content;
         if (text) {

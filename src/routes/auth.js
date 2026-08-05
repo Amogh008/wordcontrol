@@ -6,10 +6,13 @@ const User = require('../models/User');
 const Word = require('../models/Word');
 const PendingRegistration = require('../models/PendingRegistration');
 const PendingPasswordReset = require('../models/PendingPasswordReset');
-const { clearNotes } = require('../notesRepo');
+const { clearNotes, getProfilePhoto, saveProfilePhoto, deleteProfilePhoto } = require('../notesRepo');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../verificationEmail');
 const { signToken } = require('../tokens');
 const { requireAuth } = require('../middleware/auth');
+const LanguageProfile = require('../models/LanguageProfile');
+const { ensureDeutschProfile } = require('../languageProfiles');
+const Friendship = require('../models/Friendship');
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
@@ -120,6 +123,7 @@ router.post('/verify-email', async (req, res, next) => {
       name: pending.name,
       emailVerified: true,
     });
+    await ensureDeutschProfile(user.id);
     await PendingRegistration.deleteOne({ _id: pending._id });
     res.status(201).json({ token: signToken(user), user });
   } catch (err) {
@@ -145,6 +149,7 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    await ensureDeutschProfile(user.id);
     res.json({ token: signToken(user), user });
   } catch (err) {
     next(err);
@@ -255,6 +260,8 @@ router.post('/google', async (req, res, next) => {
       user = await User.create({ googleId, email, name, emailVerified: true });
     }
 
+    await ensureDeutschProfile(user.id);
+
     res.json({ token: signToken(user), user });
   } catch (err) {
     if (err.message && err.message.includes('Token used too late')) {
@@ -308,10 +315,77 @@ router.get('/me', requireAuth, async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    await ensureDeutschProfile(user.id);
     res.json({ user });
   } catch (err) {
     next(err);
   }
+});
+
+router.patch('/me/profile', requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const name = String(req.body.name || '').trim();
+    if (name.length < 2 || name.length > 60) {
+      return res.status(400).json({ error: 'Name must contain between 2 and 60 characters.' });
+    }
+    const cooldownMs = 14 * 24 * 60 * 60 * 1000;
+    const nextEditAt = user.profileInfoUpdatedAt
+      ? new Date(user.profileInfoUpdatedAt.getTime() + cooldownMs)
+      : null;
+    if (nextEditAt && nextEditAt > new Date()) {
+      return res.status(429).json({
+        error: 'Profile information can only be changed once every 14 days.',
+        nextEditAt,
+      });
+    }
+
+    user.name = name;
+    user.profileInfoUpdatedAt = new Date();
+    await user.save();
+    res.json({ user, nextEditAt: new Date(user.profileInfoUpdatedAt.getTime() + cooldownMs) });
+  } catch (error) { next(error); }
+});
+
+router.get('/me/profile-photo', requireAuth, async (req, res, next) => {
+  try {
+    const photo = await getProfilePhoto(req.user.id);
+    if (!photo) return res.json({ photo: null });
+    const displayedData = req.query.size === 'full' ? photo.data : (photo.avatarData || photo.data);
+    res.json({ photo: `data:${photo.contentType};base64,${displayedData.toString('base64')}` });
+  } catch (error) { next(error); }
+});
+
+router.put('/me/profile-photo', requireAuth, async (req, res, next) => {
+  try {
+    const contentType = String(req.body.contentType || '').toLowerCase();
+    const base64 = String(req.body.base64 || '').replace(/^data:[^;]+;base64,/, '');
+    const avatarBase64 = String(req.body.avatarBase64 || '').replace(/^data:[^;]+;base64,/, '');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(contentType)
+      || !/^[a-z0-9+/=\r\n]+$/i.test(base64)
+      || !/^[a-z0-9+/=\r\n]+$/i.test(avatarBase64)) {
+      return res.status(400).json({ error: 'Choose a JPEG, PNG, or WebP image.' });
+    }
+    const data = Buffer.from(base64, 'base64');
+    const avatarData = Buffer.from(avatarBase64, 'base64');
+    if (!data.length || data.length > 1024 * 1024) {
+      return res.status(413).json({ error: 'Profile photo must not exceed 1 MB.' });
+    }
+    if (!avatarData.length || avatarData.length > 100 * 1024) {
+      return res.status(413).json({ error: 'Avatar thumbnail must not exceed 100 KB.' });
+    }
+    await saveProfilePhoto(req.user.id, contentType, data, avatarData);
+    res.json({ photo: `data:${contentType};base64,${avatarData.toString('base64')}` });
+  } catch (error) { next(error); }
+});
+
+router.delete('/me/profile-photo', requireAuth, async (req, res, next) => {
+  try {
+    await deleteProfilePhoto(req.user.id);
+    res.status(204).send();
+  } catch (error) { next(error); }
 });
 
 router.delete('/me', requireAuth, async (req, res, next) => {
@@ -323,8 +397,18 @@ router.delete('/me', requireAuth, async (req, res, next) => {
 
     // Delete data held outside MongoDB first. If AstraDB is unavailable, keep
     // the account intact so the user can retry without leaving orphaned notes.
+    const profiles = await LanguageProfile.find({ userId: req.user.id }).select('_id');
+    await Promise.all(profiles.map((profile) => clearNotes(req.user.id, profile.id)));
     await clearNotes(req.user.id);
     await Word.deleteMany({ userId: req.user.id });
+    await Friendship.deleteMany({
+      $or: [
+        { requesterProfileId: { $in: profiles.map((profile) => profile._id) } },
+        { addresseeProfileId: { $in: profiles.map((profile) => profile._id) } },
+      ],
+    });
+    await LanguageProfile.deleteMany({ userId: req.user.id });
+    await deleteProfilePhoto(req.user.id);
     await User.deleteOne({ _id: req.user.id });
 
     res.status(204).end();

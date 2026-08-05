@@ -1,4 +1,5 @@
 const { generateContent, generateContentStream } = require('./groq');
+const { languageFor } = require('./languages');
 
 const MODEL = 'llama-3.3-70b-versatile';
 
@@ -8,7 +9,9 @@ const LEVEL_GUIDANCE = {
   B1: 'Use clear, natural sentences, common subordinate clauses, and moderately varied vocabulary while remaining accessible to an intermediate learner.',
 };
 
-const systemPrompt = (level, streamed = false) => `You are a creative German-language storyteller for an adult German learner.
+const systemPrompt = (level, streamed = false, language = 'de') => {
+  const target = languageFor(language)?.englishName || 'German';
+  return `You are a creative ${target}-language storyteller for an adult ${target} learner.
 Write a coherent, beautiful, meaningful story using every supplied vocabulary word.
 - Write strictly at CEFR ${level} level. ${LEVEL_GUIDANCE[level]}
 - Use every supplied "wort" at least once with exactly the same spelling and capitalization so the app can highlight it.
@@ -19,8 +22,9 @@ ${streamed
     ? `- The first line must contain only a short, evocative German title.
 - After the title, write a blank line followed by at least two paragraphs separated by blank lines.
 - Return only the title and story. Do not use Markdown, labels, commentary, or JSON.`
-    : `- Return only a valid JSON object in exactly this shape: {"title":"A short, evocative German title","paragraphs":["First German paragraph","Second German paragraph"]}.
+    : `- Return only a valid JSON object in exactly this shape: {"title":"A short, evocative ${target} title","paragraphs":["First ${target} paragraph","Second ${target} paragraph"]}.
 - Include at least two strings in "paragraphs". Do not add any other fields or Markdown formatting.`}`;
+};
 
 function storyVocabulary(words) {
   return words.map(({ wort, artikel = '', bedeutung = '' }) => ({
@@ -38,15 +42,15 @@ function parseStreamedStory(text) {
   return { title: title.trim(), paragraphs };
 }
 
-async function generateVocabularyStory(words, level) {
+async function generateVocabularyStory(words, level, language = 'de') {
   const vocabulary = storyVocabulary(words);
 
   let response;
   try {
     response = await generateContent({
       model: MODEL,
-      contents: `Create one German story using all vocabulary entries below:\n${JSON.stringify(vocabulary)}`,
-      systemInstruction: systemPrompt(level),
+      contents: `Create one story using all vocabulary entries below:\n${JSON.stringify(vocabulary)}`,
+      systemInstruction: systemPrompt(level, false, language),
       responseFormat: { type: 'json_object' },
       maxOutputTokens: 1500,
       reasoningEffort: null,
@@ -78,15 +82,15 @@ async function generateVocabularyStory(words, level) {
   }
 }
 
-async function streamVocabularyStory(words, level, onDelta) {
+async function streamVocabularyStory(words, level, onDelta, language = 'de') {
   const vocabulary = storyVocabulary(words);
   let text = '';
 
   try {
     for await (const delta of generateContentStream({
       model: MODEL,
-      contents: `Create one German story using all vocabulary entries below:\n${JSON.stringify(vocabulary)}`,
-      systemInstruction: systemPrompt(level, true),
+      contents: `Create one story using all vocabulary entries below:\n${JSON.stringify(vocabulary)}`,
+      systemInstruction: systemPrompt(level, true, language),
       maxOutputTokens: 1500,
       reasoningEffort: null,
     })) {

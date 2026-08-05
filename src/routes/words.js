@@ -5,6 +5,7 @@ const { translateText } = require('../translate');
 const { checkGrammar } = require('../grammar');
 const { generateVocabularyStory, streamVocabularyStory } = require('../story');
 const { hasKey } = require('../groq');
+const { languageFor } = require('../languages');
 
 const router = express.Router();
 const STORY_LEVELS = new Set(['A1', 'A2', 'B1']);
@@ -18,7 +19,7 @@ function storyLevel(value) {
   return value;
 }
 
-async function storyVocabularyForUser(userId, wordIds) {
+async function storyVocabularyForUser(userId, languageProfileId, wordIds) {
   if (!Array.isArray(wordIds) || wordIds.length === 0 || wordIds.length > 30) {
     const error = new Error('Choose between 1 and 30 words for a story.');
     error.statusCode = 400;
@@ -32,7 +33,7 @@ async function storyVocabularyForUser(userId, wordIds) {
     throw error;
   }
 
-  const words = await Word.find({ _id: { $in: uniqueIds }, userId })
+  const words = await Word.find({ _id: { $in: uniqueIds }, userId, languageProfileId })
     .select('artikel wort bedeutung')
     .lean();
   const byId = new Map(words.map((word) => [String(word._id), word]));
@@ -60,7 +61,7 @@ router.post('/grammar', async (req, res, next) => {
     if (!hasKey()) {
       return res.status(503).json({ error: 'Grammar check is not configured on the server.' });
     }
-    const result = await checkGrammar({ sentence: sentence.trim() });
+    const result = await checkGrammar({ sentence: sentence.trim(), language: req.languageProfile.language });
     res.json(result);
   } catch (err) {
     if (err.statusCode) {
@@ -72,9 +73,12 @@ router.post('/grammar', async (req, res, next) => {
 
 router.post('/translate', async (req, res, next) => {
   try {
-    const { text, from = 'de', to = 'en' } = req.body;
+    const { text, from, to } = req.body;
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'text is required.' });
+    }
+    if (!languageFor(from) || !languageFor(to) || from === to) {
+      return res.status(400).json({ error: 'Choose two different supported languages.' });
     }
     if (!hasKey()) {
       return res.status(503).json({ error: 'Translation is not configured on the server.' });
@@ -98,7 +102,7 @@ router.post('/autofill', async (req, res, next) => {
     if (!hasKey()) {
       return res.status(503).json({ error: 'Autofill is not configured on the server.' });
     }
-    const suggestion = await autofillWord({ wort: wort.trim(), artikel });
+    const suggestion = await autofillWord({ wort: wort.trim(), artikel, language: req.languageProfile.language });
     res.json(suggestion);
   } catch (err) {
     if (err.statusCode) {
@@ -115,9 +119,9 @@ router.post('/story', async (req, res, next) => {
     }
 
     const level = storyLevel(req.body.level);
-    const vocabulary = await storyVocabularyForUser(req.user.id, req.body.wordIds);
+    const vocabulary = await storyVocabularyForUser(req.user.id, req.languageProfile.id, req.body.wordIds);
 
-    const story = await generateVocabularyStory(vocabulary, level);
+    const story = await generateVocabularyStory(vocabulary, level, req.languageProfile.language);
     res.json(story);
   } catch (err) {
     if (err.statusCode) {
@@ -136,7 +140,7 @@ router.post('/story/stream', async (req, res) => {
     }
 
     const level = storyLevel(req.body.level);
-    const vocabulary = await storyVocabularyForUser(req.user.id, req.body.wordIds);
+    const vocabulary = await storyVocabularyForUser(req.user.id, req.languageProfile.id, req.body.wordIds);
 
     res.status(200);
     res.set({
@@ -148,7 +152,7 @@ router.post('/story/stream', async (req, res) => {
 
     const story = await streamVocabularyStory(vocabulary, level, (text) => {
       if (!res.writableEnded) send({ type: 'delta', text });
-    });
+    }, req.languageProfile.language);
     if (!res.writableEnded) {
       send({ type: 'done', story });
       res.end();
@@ -168,7 +172,7 @@ router.post('/story/stream', async (req, res) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    const words = await Word.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    const words = await Word.find({ userId: req.user.id, languageProfileId: req.languageProfile.id }).sort({ createdAt: -1 });
     res.json(words);
   } catch (err) {
     next(err);
@@ -181,7 +185,7 @@ router.post('/', async (req, res, next) => {
     if (!wort || !bedeutung) {
       return res.status(400).json({ error: 'wort and bedeutung are required.' });
     }
-    const word = await Word.create({ userId: req.user.id, artikel, wort, bedeutung, notizen });
+    const word = await Word.create({ userId: req.user.id, languageProfileId: req.languageProfile.id, artikel, wort, bedeutung, notizen });
     res.status(201).json(word);
   } catch (err) {
     next(err);
@@ -195,7 +199,7 @@ router.put('/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'wort and bedeutung are required.' });
     }
     const updated = await Word.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user.id },
+      { _id: req.params.id, userId: req.user.id, languageProfileId: req.languageProfile.id },
       { artikel, wort, bedeutung, notizen },
       { new: true, runValidators: true }
     );
@@ -210,7 +214,7 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    const deleted = await Word.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+    const deleted = await Word.findOneAndDelete({ _id: req.params.id, userId: req.user.id, languageProfileId: req.languageProfile.id });
     if (!deleted) {
       return res.status(404).json({ error: 'Word not found.' });
     }

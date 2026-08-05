@@ -10,4 +10,5 @@ const pendingPasswordResetSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-module.exports = mongoose.model('PendingPasswordReset', pendingPasswordResetSchema);
+const { dbName } = require('../dbTableNames');
+module.exports = mongoose.model('PendingPasswordReset', pendingPasswordResetSchema, dbName('pendingpasswordresets'));

@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
-    const notes = await listNotes(req.user.id);
+    const notes = await listNotes(req.user.id, req.languageProfile.id, req.languageProfile.language);
     res.json(notes);
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -21,7 +21,7 @@ router.post('/', async (req, res, next) => {
     if (!title || !title.trim() || !content || !content.trim()) {
       return res.status(400).json({ error: 'title and content are required.' });
     }
-    const note = await createNote(req.user.id, { title: title.trim(), content: content.trim() });
+    const note = await createNote(req.user.id, req.languageProfile.id, { title: title.trim(), content: content.trim() });
     res.status(201).json(note);
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -52,7 +52,7 @@ router.put('/:id', async (req, res, next) => {
     if (!title || !title.trim() || !content || !content.trim()) {
       return res.status(400).json({ error: 'title and content are required.' });
     }
-    const note = await updateNote(req.user.id, req.params.id, { title: title.trim(), content: content.trim() });
+    const note = await updateNote(req.user.id, req.languageProfile.id, req.params.id, { title: title.trim(), content: content.trim() });
     res.json(note);
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -62,7 +62,7 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    await deleteNote(req.user.id, req.params.id);
+    await deleteNote(req.user.id, req.languageProfile.id, req.params.id);
     res.status(204).send();
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -72,7 +72,7 @@ router.delete('/:id', async (req, res, next) => {
 
 router.delete('/', async (req, res, next) => {
   try {
-    await clearNotes(req.user.id);
+    await clearNotes(req.user.id, req.languageProfile.id);
     res.status(204).send();
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });

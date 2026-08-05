@@ -1,4 +1,5 @@
 const { generateContent } = require('./groq');
+const { languageFor } = require('./languages');
 
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
@@ -31,13 +32,14 @@ Given a German sentence, decide whether it is grammatically correct.
 - corrected: the fully corrected sentence; if it is already correct, return it unchanged.
 - feedback: written in English. If there are mistakes, list each one on its OWN line, explaining what is wrong and the rule (e.g. wrong case, verb position, article, adjective ending, capitalization). If the sentence is correct, give a short confirmation.`;
 
-async function checkGrammar({ sentence }) {
+async function checkGrammar({ sentence, language = 'de' }) {
+  const target = languageFor(language)?.englishName || 'German';
   let response;
   try {
     response = await generateContent({
       model: MODEL,
       contents: sentence,
-      systemInstruction: SYSTEM,
+      systemInstruction: SYSTEM.replaceAll('German', target),
       responseSchema: SCHEMA,
       schemaName: 'grammar_check',
       maxOutputTokens: 2048,

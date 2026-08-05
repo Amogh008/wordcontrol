@@ -12,4 +12,5 @@ const pendingRegistrationSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-module.exports = mongoose.model('PendingRegistration', pendingRegistrationSchema);
+const { dbName } = require('../dbTableNames');
+module.exports = mongoose.model('PendingRegistration', pendingRegistrationSchema, dbName('pendingregistrations'));
