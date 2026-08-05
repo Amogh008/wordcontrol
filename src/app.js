@@ -19,8 +19,9 @@ function createApp() {
     res.json({ status: 'ok' });
   });
 
-  app.get('/pingtest', (_req, res) => {
-    console.log('ping request received');
+  app.get('/pingtest', (req, res) => {
+    const message = typeof req.query.message === 'string' ? req.query.message : '';
+    console.info('ping request received', { message });
     res.json({ message: 'server active' });
   });
 

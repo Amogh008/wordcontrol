@@ -1,4 +1,5 @@
 const DEFAULT_INTERVAL_MS = 30 * 1000; // 30 seconds
+const KEEP_ALIVE_MESSAGE = 'Kepp ALive for Pinger';
 
 // Pings `${targetUrl}/pingtest` on a timer to keep a companion service awake.
 // Any failure (network error, non-2xx, timeout) is intentionally swallowed —
@@ -10,10 +11,11 @@ function startKeepAlive(targetUrl, intervalMs = DEFAULT_INTERVAL_MS) {
   }
 
   const pingUrl = `${targetUrl.replace(/\/+$/, '')}/pingtest`;
+  const pingUrlWithMessage = `${pingUrl}?message=${encodeURIComponent(KEEP_ALIVE_MESSAGE)}`;
 
   const ping = async () => {
     try {
-      const res = await fetch(pingUrl, { signal: AbortSignal.timeout(15000) });
+      const res = await fetch(pingUrlWithMessage, { signal: AbortSignal.timeout(15000) });
       console.log(`[keep-alive] pinged ${pingUrl} -> ${res.status}`);
     } catch {
       // Ignore errors on purpose: the other service may be down, restarting,
