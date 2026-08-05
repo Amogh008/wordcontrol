@@ -23,7 +23,7 @@ async function main() {
     console.log(`wordcontrol-api listening on port ${PORT}`);
   });
 
-  // Keep the pinger-api awake by pinging it every 10 minutes.
+  // Keep the pinger-api awake by pinging it every 30 seconds.
   startKeepAlive(process.env.PINGER_URL);
 }
 
