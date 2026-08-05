@@ -1,8 +1,10 @@
 require('dotenv').config();
+const http = require('http');
 const { createApp } = require('./app');
 const { connectDB } = require('./db');
 const { connectAstra } = require('./astra');
 const { startKeepAlive } = require('./keepAlive');
+const { attachRealtimeServer } = require('./realtime');
 
 const PORT = process.env.PORT || 4000;
 
@@ -19,7 +21,9 @@ async function main() {
   }
 
   const app = createApp();
-  app.listen(PORT, () => {
+  const server = http.createServer(app);
+  attachRealtimeServer(server);
+  server.listen(PORT, () => {
     console.log(`wordcontrol-api listening on port ${PORT}`);
   });
 
