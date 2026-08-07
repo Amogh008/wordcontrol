@@ -12,6 +12,9 @@ const languageFriendSchema = new mongoose.Schema(
   {
     friendId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     status: { type: String, enum: ['pending', 'accepted', 'blocked'], default: 'pending' },
+    // Who sent the original request, so each side can tell an incoming
+    // request (actionable: accept/reject) from an outgoing one (waiting).
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { _id: false },
 );

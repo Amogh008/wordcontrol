@@ -8,6 +8,7 @@ const UserPreference = require('../models/UserPreference');
 const PendingRegistration = require('../models/PendingRegistration');
 const PendingPasswordReset = require('../models/PendingPasswordReset');
 const { clearNotes, getProfilePhoto, saveProfilePhoto, deleteProfilePhoto } = require('../notesRepo');
+const { purgeUser: purgeSessionTracking } = require('../sessionTrackerClient');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../verificationEmail');
 const { signToken } = require('../tokens');
 const { requireAuth } = require('../middleware/auth');
@@ -408,6 +409,7 @@ router.delete('/me', requireAuth, async (req, res, next) => {
     );
     await deleteProfilePhoto(req.user.id);
     await UserPreference.deleteOne({ userId: req.user.id });
+    await purgeSessionTracking(req.user.id);
     await User.deleteOne({ _id: req.user.id });
 
     res.status(204).end();

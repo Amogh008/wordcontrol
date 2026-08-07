@@ -1,20 +1,21 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const { notifyAccount } = require('../realtimeEvents');
 
 const router = express.Router();
 
 // Requires a replica-set-backed MongoDB (Atlas default) since these routes
 // write to two User documents atomically.
-async function pushFriendEntry(userId, language, friendId, status, session) {
+async function pushFriendEntry(userId, language, friendId, status, requestedBy, session) {
   await User.updateOne(
     { _id: userId, 'languageFriends.language': language },
-    { $push: { 'languageFriends.$.friends': { friendId, status } } },
+    { $push: { 'languageFriends.$.friends': { friendId, status, requestedBy } } },
     { session },
   );
   await User.updateOne(
     { _id: userId, 'languageFriends.language': { $ne: language } },
-    { $push: { languageFriends: { language, friends: [{ friendId, status }] } } },
+    { $push: { languageFriends: { language, friends: [{ friendId, status, requestedBy }] } } },
     { session },
   );
 }
@@ -33,10 +34,36 @@ router.get('/', async (req, res, next) => {
     const friendMap = new Map(friendUsers.map((u) => [u._id.toString(), u]));
 
     const friends = (entry?.friends || [])
-      .filter((f) => friendMap.has(String(f.friendId)))
+      .filter((f) => f.status === 'accepted' && friendMap.has(String(f.friendId)))
       .map((f) => ({ ...friendSummary(friendMap.get(String(f.friendId))), status: f.status }));
 
     res.json({ language, friends });
+  } catch (error) { next(error); }
+});
+
+// Pending friend requests for the notification bell: split into requests
+// the caller received (actionable: accept/reject) and ones they sent
+// (waiting on the other person).
+router.get('/requests', async (req, res, next) => {
+  try {
+    const { language } = req.languageProfile;
+    const me = await User.findById(req.user.id).select('languageFriends');
+    const entry = (me.languageFriends || []).find((e) => e.language === language);
+    const pending = (entry?.friends || []).filter((f) => f.status === 'pending');
+    const otherIds = pending.map((f) => f.friendId);
+    const otherUsers = await User.find({ _id: { $in: otherIds } }).select('name email');
+    const otherMap = new Map(otherUsers.map((u) => [u._id.toString(), u]));
+
+    const incoming = [];
+    const outgoing = [];
+    pending.forEach((f) => {
+      const other = otherMap.get(String(f.friendId));
+      if (!other) return;
+      const isIncoming = String(f.requestedBy) !== String(req.user.id);
+      (isIncoming ? incoming : outgoing).push(friendSummary(other));
+    });
+
+    res.json({ language, incoming, outgoing });
   } catch (error) { next(error); }
 });
 
@@ -52,22 +79,24 @@ router.post('/requests', async (req, res, next) => {
     }
 
     const target = userId
-      ? await User.findById(userId).select('_id')
-      : await User.findOne({ email }).select('_id');
+      ? await User.findById(userId).select('_id name email')
+      : await User.findOne({ email }).select('_id name email');
     if (!target) return res.status(404).json({ error: 'User not found.' });
     if (String(target._id) === String(req.user.id)) {
       return res.status(400).json({ error: 'You cannot friend yourself.' });
     }
 
-    const me = await User.findById(req.user.id).select('languageFriends');
+    const me = await User.findById(req.user.id).select('languageFriends name email');
     const myEntry = (me.languageFriends || []).find((e) => e.language === language);
     const existing = myEntry?.friends.find((f) => String(f.friendId) === String(target._id));
     if (existing) return res.status(409).json({ error: `Friend request already ${existing.status}.` });
 
     await session.withTransaction(async () => {
-      await pushFriendEntry(req.user.id, language, target._id, 'pending', session);
-      await pushFriendEntry(target._id, language, req.user.id, 'pending', session);
+      await pushFriendEntry(req.user.id, language, target._id, 'pending', req.user.id, session);
+      await pushFriendEntry(target._id, language, req.user.id, 'pending', req.user.id, session);
     });
+
+    notifyAccount(target._id, 'friend:request', { language, from: friendSummary(me) });
 
     res.status(201).json({ status: 'pending' });
   } catch (error) {
@@ -87,7 +116,7 @@ router.post('/:friendId/accept', async (req, res, next) => {
     const me = await User.findOne({
       _id: req.user.id,
       languageFriends: { $elemMatch: { language, 'friends.friendId': friendId } },
-    }).select('_id');
+    }).select('name email');
     if (!me) return res.status(404).json({ error: 'Friend request not found.' });
 
     await session.withTransaction(async () => {
@@ -102,6 +131,8 @@ router.post('/:friendId/accept', async (req, res, next) => {
         { arrayFilters: [{ 'entry.language': language }, { 'friend.friendId': req.user.id }], session },
       );
     });
+
+    notifyAccount(friendId, 'friend:accepted', { language, by: friendSummary(me) });
 
     res.json({ status: 'accepted' });
   } catch (error) {
@@ -130,6 +161,8 @@ router.delete('/:friendId', async (req, res, next) => {
         { session },
       );
     });
+
+    notifyAccount(friendId, 'friend:removed', { language, by: req.user.id });
 
     res.status(204).send();
   } catch (error) {
