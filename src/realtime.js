@@ -2,11 +2,13 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
 const User = require('./models/User');
+const Call = require('./models/Call');
 const { findLanguageProfile } = require('./languageProfiles');
 const { setActiveLanguageProfile } = require('./userPreferences');
 const { SUPPORTED_LANGUAGE_CODES } = require('./languages');
 const { getProfilePhoto } = require('./notesRepo');
 const { trackConnect, trackDisconnect } = require('./sessionTrackerClient');
+const { onAccountNotify } = require('./realtimeEvents');
 
 async function isFriend(accountIdA, accountIdB, language) {
   try {
@@ -41,6 +43,26 @@ function attachRealtimeServer(httpServer) {
   const calls = new Map();
   const userCalls = new Map();
   const networkOwners = new Map();
+  const accountConnections = new Map();
+
+  const recordCallHistory = (call, reason) => {
+    if (call.state !== 'in_call' || !call.startedAt || !call.accountIds) return;
+    const [participantA, participantB] = call.participants;
+    const accountIdA = call.accountIds.get(participantA);
+    const accountIdB = call.accountIds.get(participantB);
+    if (!accountIdA || !accountIdB) return;
+
+    const endedAt = new Date();
+    Call.create({
+      participants: [accountIdA, accountIdB],
+      language: call.language,
+      relationship: call.relationship || 'random',
+      startedAt: call.startedAt,
+      endedAt,
+      durationSeconds: Math.max(0, (endedAt.getTime() - call.startedAt.getTime()) / 1000),
+      endReason: reason,
+    }).catch((error) => console.warn('Failed to record call history:', error.message));
+  };
 
   const broadcastOwnership = (targetUserId) => {
     const ownerSocketId = networkOwners.get(targetUserId);
@@ -57,6 +79,8 @@ function attachRealtimeServer(httpServer) {
     const callId = userCalls.get(endingUserId);
     const call = callId ? calls.get(callId) : null;
     if (!call) return;
+
+    recordCallHistory(call, reason);
 
     call.participants.forEach((participantId) => {
       userCalls.delete(participantId);
@@ -137,6 +161,7 @@ function attachRealtimeServer(httpServer) {
           endedBy: name,
         });
 
+        recordCallHistory(previousCall, 'call-transferred');
         calls.delete(previousCallId);
         const nextCall = {
           id: nextCallId,
@@ -158,12 +183,12 @@ function attachRealtimeServer(httpServer) {
 
         io.to(socketId).emit('match:found', {
           callId: nextCallId,
-          partner: { id: partnerId, name: partner?.name || 'German learner' },
+          partner: { id: partnerId, accountId: partner?.accountId, name: partner?.name || 'German learner' },
           transferred: true,
         });
         io.to(partnerSocketId).emit('match:found', {
           callId: nextCallId,
-          partner: { id: userId, name },
+          partner: { id: userId, accountId, name },
           transferred: true,
         });
         return { ok: true, available: false, callTransferred: true };
@@ -207,6 +232,13 @@ function attachRealtimeServer(httpServer) {
     }
   });
 
+  const emitToAccount = (accountId, event, payload) => {
+    (accountConnections.get(String(accountId)) || []).forEach((socketId) => {
+      io.to(socketId).emit(event, payload);
+    });
+  };
+  onAccountNotify(({ accountId, event, payload }) => emitToAccount(accountId, event, payload));
+
   io.on('connection', (socket) => {
     const { id: userId, accountId, name, language, avatar } = socket.data.user;
     socket.join(`language:${language}`);
@@ -214,6 +246,9 @@ function attachRealtimeServer(httpServer) {
     userSockets.add(socket.id);
     connections.set(userId, userSockets);
     connectedUsers.set(userId, { userId, accountId, name, language, avatar });
+    const accountSockets = accountConnections.get(accountId) || new Set();
+    accountSockets.add(socket.id);
+    accountConnections.set(accountId, accountSockets);
 
     trackConnect({
       userId: accountId,
@@ -295,11 +330,11 @@ function attachRealtimeServer(httpServer) {
 
       io.to(current.socketId).emit('match:found', {
         callId,
-        partner: { id: partner.userId, name: partner.name },
+        partner: { id: partner.userId, accountId: connectedUsers.get(partner.userId)?.accountId, name: partner.name },
       });
       io.to(partner.socketId).emit('match:found', {
         callId,
-        partner: { id: current.userId, name: current.name },
+        partner: { id: current.userId, accountId: connectedUsers.get(current.userId)?.accountId, name: current.name },
       });
       acknowledge({ ok: true, waiting: false });
     });
@@ -361,6 +396,9 @@ function attachRealtimeServer(httpServer) {
 
       const remainingSockets = connections.get(userId);
       remainingSockets?.delete(socket.id);
+      const remainingAccountSockets = accountConnections.get(accountId);
+      remainingAccountSockets?.delete(socket.id);
+      if (!remainingAccountSockets?.size) accountConnections.delete(accountId);
       const call = calls.get(userCalls.get(userId));
       if (call?.sockets.get(userId) === socket.id) {
         endCall(userId, 'partner-disconnected');

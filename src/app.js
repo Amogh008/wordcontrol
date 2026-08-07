@@ -8,6 +8,7 @@ const notesRouter = require('./routes/notes');
 const dictionaryRouter = require('./routes/dictionary');
 const languageProfilesRouter = require('./routes/languageProfiles');
 const friendsRouter = require('./routes/friends');
+const callHistoryRouter = require('./routes/callHistory');
 const preferencesRouter = require('./routes/preferences');
 const { requireLanguageProfile } = require('./middleware/languageProfile');
 
@@ -47,6 +48,9 @@ function createApp() {
 
   // Friend requests/lists are scoped to the caller's active language profile.
   app.use('/api/friends', requireAuth, requireLanguageProfile, friendsRouter);
+
+  // Call history (past speaking-practice calls with duration) is scoped to the caller's account.
+  app.use('/api/calls', requireAuth, callHistoryRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
