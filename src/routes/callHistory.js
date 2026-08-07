@@ -22,6 +22,7 @@ router.get('/', async (req, res, next) => {
       const partner = call.participants.find((p) => String(p._id) !== String(req.user.id));
       return {
         id: call._id.toString(),
+        partnerId: partner?._id ? String(partner._id) : null,
         partnerName: partner?.name || 'Language learner',
         language: call.language,
         relationship: call.relationship,
