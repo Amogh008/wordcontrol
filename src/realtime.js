@@ -54,6 +54,7 @@ function attachRealtimeServer(httpServer) {
 
     const endedAt = new Date();
     Call.create({
+      sessionId: call.id,
       participants: [accountIdA, accountIdB],
       language: call.language,
       relationship: call.relationship || 'random',
@@ -95,14 +96,14 @@ function attachRealtimeServer(httpServer) {
   const publicOnlineUsers = (language) =>
     [...connectedUsers.values()]
       .filter((user) => user.language === language)
-      .map(({ userId, name, avatar }) => {
+      .map(({ userId, accountId, name, avatar }) => {
         const call = calls.get(userCalls.get(userId));
         let status = 'online';
         if (call?.state === 'in_call') status = 'in_call';
         else if (call) status = 'matched';
         else if (matchingQueue.includes(userId)) status = 'searching';
         else if (availableUsers.has(userId)) status = 'available';
-        return { id: userId, name, avatar, status };
+        return { id: userId, accountId, name, avatar, status };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
