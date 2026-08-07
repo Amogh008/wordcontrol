@@ -2,9 +2,26 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
 const User = require('./models/User');
-const LanguageProfile = require('./models/LanguageProfile');
+const { findLanguageProfile } = require('./languageProfiles');
+const { setActiveLanguageProfile } = require('./userPreferences');
 const { SUPPORTED_LANGUAGE_CODES } = require('./languages');
 const { getProfilePhoto } = require('./notesRepo');
+const { trackConnect, trackDisconnect } = require('./sessionTrackerClient');
+
+async function isFriend(accountIdA, accountIdB, language) {
+  try {
+    const userA = await User.findById(accountIdA).select('languageFriends').lean();
+    const entry = (userA?.languageFriends || []).find((e) => e.language === language);
+    return Boolean(
+      entry?.friends?.some(
+        (f) => String(f.friendId) === String(accountIdB) && f.status === 'accepted',
+      ),
+    );
+  } catch (error) {
+    console.warn('Failed to resolve friendship:', error.message);
+    return false;
+  }
+}
 
 function attachRealtimeServer(httpServer) {
   const io = new Server(httpServer, {
@@ -170,8 +187,9 @@ function attachRealtimeServer(httpServer) {
       if (!profileId) return next(new Error('Choose a language profile.'));
       const user = await User.findById(payload.sub).select('name').lean();
       if (!user) return next(new Error('Unauthorized'));
-      const profile = await LanguageProfile.findOne({ _id: profileId, userId: user._id }).lean();
+      const profile = await findLanguageProfile(user._id, profileId);
       if (!profile) return next(new Error('Invalid language profile.'));
+      setActiveLanguageProfile(user._id, profile._id).catch((error) => console.error(error));
       const photo = await getProfilePhoto(user._id.toString());
       const avatarData = photo?.avatarData || photo?.data;
 
@@ -190,12 +208,20 @@ function attachRealtimeServer(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    const { id: userId, name, language, avatar } = socket.data.user;
+    const { id: userId, accountId, name, language, avatar } = socket.data.user;
     socket.join(`language:${language}`);
     const userSockets = connections.get(userId) || new Set();
     userSockets.add(socket.id);
     connections.set(userId, userSockets);
-    connectedUsers.set(userId, { userId, name, language, avatar });
+    connectedUsers.set(userId, { userId, accountId, name, language, avatar });
+
+    trackConnect({
+      userId: accountId,
+      socketId: socket.id,
+      languageProfileId: userId,
+      ip: socket.handshake.address,
+      userAgent: socket.handshake.headers['user-agent'],
+    });
 
     broadcastPresence();
     broadcastOwnership(userId);
@@ -296,6 +322,18 @@ function attachRealtimeServer(httpServer) {
       if (call.ready.size !== 2) return;
 
       call.state = 'in_call';
+      call.startedAt = new Date();
+      call.language = language;
+      call.accountIds = new Map(
+        call.participants.map((participantId) => [
+          participantId,
+          connectedUsers.get(participantId)?.accountId,
+        ]),
+      );
+      const [participantA, participantB] = call.participants;
+      isFriend(call.accountIds.get(participantA), call.accountIds.get(participantB), language).then(
+        (friend) => { call.relationship = friend ? 'friend' : 'random'; },
+      );
       broadcastPresence();
       call.participants.forEach((participantId, index) => {
         io.to(call.sockets.get(participantId)).emit('call:start', {
@@ -318,7 +356,9 @@ function attachRealtimeServer(httpServer) {
       endCall(userId, 'user-ended', name);
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+      trackDisconnect({ userId: accountId, socketId: socket.id, reason });
+
       const remainingSockets = connections.get(userId);
       remainingSockets?.delete(socket.id);
       const call = calls.get(userCalls.get(userId));

@@ -3,7 +3,8 @@ const mongoose = require('mongoose');
 const wordSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    languageProfileId: { type: mongoose.Schema.Types.ObjectId, ref: 'LanguageProfile', index: true },
+    // References User.languageProfiles.[]._id (embedded, no longer a standalone collection).
+    languageProfileId: { type: mongoose.Schema.Types.ObjectId, index: true },
     artikel: { type: String, trim: true, default: '' },
     wort: { type: String, required: true, trim: true },
     bedeutung: { type: String, required: true, trim: true },

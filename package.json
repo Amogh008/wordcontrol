@@ -9,7 +9,11 @@
     "dev": "ENV_FILE=.env.development nodemon src/server.js",
     "clone-db:dev": "node scripts/cloneDatabasesToDev.js",
     "rollback-db:prod-to-v5": "node scripts/rollbackProductionToV5.js --execute",
-    "migrate:language-profiles": "node scripts/migrateLanguageProfiles.js"
+    "migrate:language-profiles": "node scripts/migrateLanguageProfiles.js",
+    "migrate:friendships": "node scripts/migrateFriendshipsToUser.js --execute",
+    "migrate:language-profiles-to-user": "node scripts/migrateLanguageProfilesToUser.js --execute",
+    "drop-legacy:language-profiles-and-friendships": "node scripts/dropLegacyLanguageAndFriendshipCollections.js --execute",
+    "backfill:user-preferences": "node scripts/backfillUserPreferences.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
