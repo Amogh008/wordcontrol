@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
-const LanguageProfile = require('../models/LanguageProfile');
-const { ensureDeutschProfile } = require('../languageProfiles');
+const { ensureDeutschProfile, findLanguageProfile } = require('../languageProfiles');
+const { ensureUserPreference, setActiveLanguageProfile } = require('../userPreferences');
 
 async function requireLanguageProfile(req, res, next) {
   try {
@@ -10,12 +10,20 @@ async function requireLanguageProfile(req, res, next) {
       if (!mongoose.isValidObjectId(requestedId)) {
         return res.status(400).json({ error: 'Invalid language profile.' });
       }
-      profile = await LanguageProfile.findOne({ _id: requestedId, userId: req.user.id });
+      profile = await findLanguageProfile(req.user.id, requestedId);
       if (!profile) return res.status(404).json({ error: 'Language profile not found.' });
     } else {
-      profile = await ensureDeutschProfile(req.user.id);
+      // No profile specified: fall back to whatever the user was last on,
+      // defaulting to the Deutsch profile for brand-new users.
+      const preference = await ensureUserPreference(req.user.id);
+      if (preference.activeLanguageProfileId) {
+        profile = await findLanguageProfile(req.user.id, preference.activeLanguageProfileId);
+      }
+      if (!profile) profile = await ensureDeutschProfile(req.user.id);
     }
     req.languageProfile = profile;
+    // Record this as the user's last-used profile; don't block the request on it.
+    setActiveLanguageProfile(req.user.id, profile._id).catch((error) => console.error(error));
     next();
   } catch (error) {
     next(error);

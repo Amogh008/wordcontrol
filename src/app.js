@@ -7,6 +7,8 @@ const authRouter = require('./routes/auth');
 const notesRouter = require('./routes/notes');
 const dictionaryRouter = require('./routes/dictionary');
 const languageProfilesRouter = require('./routes/languageProfiles');
+const friendsRouter = require('./routes/friends');
+const preferencesRouter = require('./routes/preferences');
 const { requireLanguageProfile } = require('./middleware/languageProfile');
 
 function createApp() {
@@ -31,6 +33,9 @@ function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/language-profiles', requireAuth, languageProfilesRouter);
 
+  // Per-user app settings: UI language, theme, and last-used language profile.
+  app.use('/api/preferences', requireAuth, preferencesRouter);
+
   // Word-related endpoints live under /api/word — future resources (e.g.
   // /api/<other-resource>) get their own router mounted alongside this one.
   app.use('/api/word', requireAuth, requireLanguageProfile, wordsRouter);
@@ -39,6 +44,9 @@ function createApp() {
   // Notes live in AstraDB (not MongoDB); rows are scoped by the same
   // MongoDB user id used everywhere else so a user only ever sees their own.
   app.use('/api/notes', requireAuth, requireLanguageProfile, notesRouter);
+
+  // Friend requests/lists are scoped to the caller's active language profile.
+  app.use('/api/friends', requireAuth, requireLanguageProfile, friendsRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
@@ -55,3 +63,8 @@ function createApp() {
 }
 
 module.exports = { createApp };
+
+
+
+
+

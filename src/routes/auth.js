@@ -4,15 +4,14 @@ const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const Word = require('../models/Word');
+const UserPreference = require('../models/UserPreference');
 const PendingRegistration = require('../models/PendingRegistration');
 const PendingPasswordReset = require('../models/PendingPasswordReset');
 const { clearNotes, getProfilePhoto, saveProfilePhoto, deleteProfilePhoto } = require('../notesRepo');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../verificationEmail');
 const { signToken } = require('../tokens');
 const { requireAuth } = require('../middleware/auth');
-const LanguageProfile = require('../models/LanguageProfile');
 const { ensureDeutschProfile } = require('../languageProfiles');
-const Friendship = require('../models/Friendship');
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
@@ -397,18 +396,18 @@ router.delete('/me', requireAuth, async (req, res, next) => {
 
     // Delete data held outside MongoDB first. If AstraDB is unavailable, keep
     // the account intact so the user can retry without leaving orphaned notes.
-    const profiles = await LanguageProfile.find({ userId: req.user.id }).select('_id');
-    await Promise.all(profiles.map((profile) => clearNotes(req.user.id, profile.id)));
+    const preference = await UserPreference.findOne({ userId: req.user.id }).select('languageProfiles').lean();
+    await Promise.all(
+      (preference?.languageProfiles || []).map((profile) => clearNotes(req.user.id, String(profile._id))),
+    );
     await clearNotes(req.user.id);
     await Word.deleteMany({ userId: req.user.id });
-    await Friendship.deleteMany({
-      $or: [
-        { requesterProfileId: { $in: profiles.map((profile) => profile._id) } },
-        { addresseeProfileId: { $in: profiles.map((profile) => profile._id) } },
-      ],
-    });
-    await LanguageProfile.deleteMany({ userId: req.user.id });
+    await User.updateMany(
+      { 'languageFriends.friends.friendId': req.user.id },
+      { $pull: { 'languageFriends.$[].friends': { friendId: req.user.id } } },
+    );
     await deleteProfilePhoto(req.user.id);
+    await UserPreference.deleteOne({ userId: req.user.id });
     await User.deleteOne({ _id: req.user.id });
 
     res.status(204).end();

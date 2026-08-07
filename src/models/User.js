@@ -1,4 +1,28 @@
 const mongoose = require('mongoose');
+const { PROFILE_LANGUAGE_CODES } = require('../languages');
+
+const languageProfileSchema = new mongoose.Schema(
+  {
+    language: { type: String, enum: PROFILE_LANGUAGE_CODES, required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+);
+
+const languageFriendSchema = new mongoose.Schema(
+  {
+    friendId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    status: { type: String, enum: ['pending', 'accepted', 'blocked'], default: 'pending' },
+  },
+  { _id: false },
+);
+
+const languageFriendsSchema = new mongoose.Schema(
+  {
+    language: { type: String, enum: PROFILE_LANGUAGE_CODES, required: true },
+    friends: { type: [languageFriendSchema], default: [] },
+  },
+  { _id: false },
+);
 
 const userSchema = new mongoose.Schema(
   {
@@ -8,6 +32,8 @@ const userSchema = new mongoose.Schema(
     emailVerified: { type: Boolean, default: false },
     name: { type: String, trim: true, default: '' },
     profileInfoUpdatedAt: { type: Date, default: null },
+    languageProfiles: { type: [languageProfileSchema], default: [] },
+    languageFriends: { type: [languageFriendsSchema], default: [] },
   },
   { timestamps: true }
 );
