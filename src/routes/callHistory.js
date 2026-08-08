@@ -15,10 +15,16 @@ router.get('/', async (req, res, next) => {
         .sort({ startedAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
-        .populate('participants', 'name')
+        .populate('participants', 'name ratingSum ratingCount')
         .lean(),
       Call.countDocuments({ participants: req.user.id }),
     ]);
+
+    const myRatings = await Rating.find({
+      rater: req.user.id,
+      call: { $in: calls.map((call) => call._id) },
+    }).select('call score').lean();
+    const myRatingByCall = new Map(myRatings.map((r) => [String(r.call), r.score]));
 
     const items = calls.map((call) => {
       const partner = call.participants.find((p) => String(p._id) !== String(req.user.id));
@@ -26,6 +32,9 @@ router.get('/', async (req, res, next) => {
         id: call._id.toString(),
         partnerId: partner?._id ? String(partner._id) : null,
         partnerName: partner?.name || 'Language learner',
+        partnerRating: partner?.ratingCount > 0 ? Math.round((partner.ratingSum / partner.ratingCount) * 10) / 10 : null,
+        partnerRatingCount: partner?.ratingCount || 0,
+        myRating: myRatingByCall.get(String(call._id)) || null,
         language: call.language,
         relationship: call.relationship,
         startedAt: call.startedAt,
