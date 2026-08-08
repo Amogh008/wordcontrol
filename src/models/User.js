@@ -37,6 +37,8 @@ const userSchema = new mongoose.Schema(
     profileInfoUpdatedAt: { type: Date, default: null },
     languageProfiles: { type: [languageProfileSchema], default: [] },
     languageFriends: { type: [languageFriendsSchema], default: [] },
+    ratingSum: { type: Number, default: 0 },
+    ratingCount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -44,9 +46,11 @@ const userSchema = new mongoose.Schema(
 userSchema.set('toJSON', {
   transform: (_doc, ret) => {
     ret.id = ret._id.toString();
+    ret.rating = ret.ratingCount > 0 ? Math.round((ret.ratingSum / ret.ratingCount) * 10) / 10 : null;
     delete ret._id;
     delete ret.__v;
     delete ret.passwordHash;
+    delete ret.ratingSum;
     return ret;
   },
 });

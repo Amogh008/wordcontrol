@@ -3,6 +3,7 @@ const { dbName } = require('../dbTableNames');
 
 const callSchema = new mongoose.Schema(
   {
+    sessionId: { type: String, required: true, unique: true },
     participants: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }],
       required: true,

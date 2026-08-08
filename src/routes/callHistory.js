@@ -1,5 +1,7 @@
 const express = require('express');
 const Call = require('../models/Call');
+const Rating = require('../models/Rating');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -22,6 +24,7 @@ router.get('/', async (req, res, next) => {
       const partner = call.participants.find((p) => String(p._id) !== String(req.user.id));
       return {
         id: call._id.toString(),
+        partnerId: partner?._id ? String(partner._id) : null,
         partnerName: partner?.name || 'Language learner',
         language: call.language,
         relationship: call.relationship,
@@ -33,6 +36,38 @@ router.get('/', async (req, res, next) => {
     });
 
     res.json({ items, page, limit, total });
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    next(err);
+  }
+});
+
+router.post('/session/:sessionId/rating', async (req, res, next) => {
+  try {
+    const score = Number(req.body.score);
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      return res.status(400).json({ error: 'score must be an integer between 1 and 5.' });
+    }
+
+    const call = await Call.findOne({ sessionId: req.params.sessionId }).lean();
+    if (!call) return res.status(404).json({ error: 'Call not found.' });
+
+    const participantIds = call.participants.map((id) => String(id));
+    if (!participantIds.includes(req.user.id)) {
+      return res.status(403).json({ error: 'You were not part of this call.' });
+    }
+    const rateeId = participantIds.find((id) => id !== req.user.id);
+    if (!rateeId) return res.status(400).json({ error: 'Could not determine who to rate.' });
+
+    try {
+      await Rating.create({ call: call._id, rater: req.user.id, ratee: rateeId, score });
+    } catch (err) {
+      if (err.code === 11000) return res.status(409).json({ error: 'You already rated this call.' });
+      throw err;
+    }
+
+    await User.updateOne({ _id: rateeId }, { $inc: { ratingSum: score, ratingCount: 1 } });
+    res.status(201).json({ ok: true });
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
     next(err);
